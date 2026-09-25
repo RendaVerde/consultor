@@ -1,0 +1,12 @@
+{
+  "name": "Consultor IHM",
+  "short_name": "Consultor",
+  "description": "Consulta de produtos, estoques, preços e situação por mercado.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f7f6",
+  "theme_color": "#0b2d34",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
