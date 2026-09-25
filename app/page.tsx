@@ -419,9 +419,13 @@ export default function Home() {
     setSyncMessage("");
     try {
       const response = await fetch("/api/sync", { method: "POST" });
-      const payload = await response.json();
+      const rawPayload: unknown = await response.json();
+      const payload =
+        typeof rawPayload === "object" && rawPayload !== null
+          ? (rawPayload as { message?: unknown })
+          : {};
       setSyncMessage(
-        payload.message ??
+        (typeof payload.message === "string" ? payload.message : null) ??
           (response.ok
             ? "Atualização concluída."
             : "Não foi possível atualizar."),

@@ -1,4 +1,5 @@
-export const runtime = "edge";
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST() {
   const endpoint = process.env.IHM_SYNC_ENDPOINT;
@@ -20,14 +21,20 @@ export async function POST() {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
-    const payload = await response.json().catch(() => ({}));
+    const rawPayload: unknown = await response.json().catch(() => ({}));
+    const payload =
+      typeof rawPayload === "object" && rawPayload !== null
+        ? (rawPayload as Record<string, unknown>)
+        : {};
+    const responseMessage =
+      typeof payload.message === "string" ? payload.message : null;
 
     if (!response.ok) {
       return Response.json(
         {
           status: "failed",
           message:
-            payload.message ??
+            responseMessage ??
             "O Drive respondeu com erro. A base anterior foi preservada.",
         },
         { status: 502 },

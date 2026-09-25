@@ -1,0 +1,13 @@
+# Artefatos e configurações do runtime alternativo da Cloudflare.
+.openai
+.sites-runtime
+.vinext
+.wrangler
+dist
+examples
+
+# Estado local do Codex.
+.agents
+.codex
+outputs
+work
