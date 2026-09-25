@@ -278,10 +278,12 @@ export default function Home() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
+  const [syncNeedsToken, setSyncNeedsToken] = useState(false);
+  const [syncToken, setSyncToken] = useState("");
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
-    fetch("/data/catalog.json")
+    fetch("/api/catalog")
       .then((response) => {
         if (!response.ok) throw new Error("catalog");
         return response.json() as Promise<Catalog>;
@@ -391,10 +393,6 @@ export default function Home() {
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   }, [catalog, category, query]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [category, query]);
-
   const pageSize = 24;
   const totalPages = Math.max(1, Math.ceil(dashboardProducts.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -418,18 +416,37 @@ export default function Home() {
     setSyncing(true);
     setSyncMessage("");
     try {
-      const response = await fetch("/api/sync", { method: "POST" });
+      const response = await fetch("/api/sync", {
+        method: "POST",
+        headers: syncToken
+          ? { Authorization: `Bearer ${syncToken}` }
+          : undefined,
+      });
       const rawPayload: unknown = await response.json();
       const payload =
         typeof rawPayload === "object" && rawPayload !== null
-          ? (rawPayload as { message?: unknown })
+          ? (rawPayload as { message?: unknown; requiresToken?: unknown })
           : {};
+      if (response.status === 401 || payload.requiresToken === true) {
+        setSyncNeedsToken(true);
+      }
       setSyncMessage(
         (typeof payload.message === "string" ? payload.message : null) ??
           (response.ok
             ? "Atualização concluída."
             : "Não foi possível atualizar."),
       );
+      if (response.ok) {
+        const catalogResponse = await fetch(`/api/catalog?refresh=${Date.now()}`, {
+          cache: "no-store",
+        });
+        if (!catalogResponse.ok) throw new Error("catalog");
+        const refreshedCatalog = (await catalogResponse.json()) as Catalog;
+        setCatalog(refreshedCatalog);
+        setSelected(null);
+        setSyncNeedsToken(false);
+        setSyncToken("");
+      }
     } catch {
       setSyncMessage(
         "Não foi possível iniciar a atualização. A base atual foi preservada.",
@@ -522,7 +539,10 @@ export default function Home() {
           <Search className="search-icon" size={21} />
           <Input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && results[0])
                 chooseProduct(results[0]);
@@ -866,7 +886,10 @@ export default function Home() {
                 <span>Categoria</span>
                 <select
                   value={category}
-                  onChange={(event) => setCategory(event.target.value)}
+                  onChange={(event) => {
+                    setCategory(event.target.value);
+                    setPage(1);
+                  }}
                 >
                   <option value="Todos">Todas</option>
                   {categories.map((item) => (
@@ -1008,10 +1031,25 @@ export default function Home() {
               {syncMessage}
             </div>
           )}
+          {syncNeedsToken && (
+            <label className="sync-auth">
+              <span>Chave de atualização</span>
+              <Input
+                type="password"
+                value={syncToken}
+                onChange={(event) => setSyncToken(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && syncToken) requestSync();
+                }}
+                placeholder="Informe a chave configurada na Vercel"
+                autoComplete="current-password"
+              />
+            </label>
+          )}
           <Button
             className="sync-button"
             onClick={requestSync}
-            disabled={syncing}
+            disabled={syncing || (syncNeedsToken && !syncToken)}
           >
             <RefreshCw className={syncing ? "spin" : ""} size={18} />
             {syncing ? "Verificando…" : "Atualizar dados agora"}

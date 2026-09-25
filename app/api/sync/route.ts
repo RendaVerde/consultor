@@ -1,55 +1,76 @@
+import { buildCatalog } from "@/lib/catalog-builder";
+import { blobIsConfigured, saveCatalog } from "@/lib/catalog-store";
+import {
+  downloadDriveFile,
+  driveConfigurationErrors,
+  findSourceFiles,
+} from "@/lib/google-drive";
+
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export async function POST() {
-  const endpoint = process.env.IHM_SYNC_ENDPOINT;
-  const token = process.env.IHM_SYNC_TOKEN;
+function bearerToken(request: Request) {
+  const authorization = request.headers.get("authorization") ?? "";
+  return authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+}
 
-  if (!endpoint) {
+export async function POST(request: Request) {
+  const syncToken = process.env.IHM_SYNC_TOKEN?.trim();
+  if (syncToken && bearerToken(request) !== syncToken) {
+    return Response.json(
+      {
+        status: "unauthorized",
+        requiresToken: true,
+        message:
+          "Informe a chave de atualização para consultar o Google Drive.",
+      },
+      { status: 401 },
+    );
+  }
+
+  const missing = driveConfigurationErrors();
+  if (!blobIsConfigured()) missing.push("BLOB_READ_WRITE_TOKEN");
+  if (missing.length) {
     return Response.json(
       {
         status: "configuration_required",
-        message:
-          "A conexão automática com o Google Drive ainda não foi autorizada. O Consultor continua usando a última base validada.",
+        message: `A integração ainda precisa ser configurada na Vercel: ${missing.join(", ")}.`,
       },
       { status: 409 },
     );
   }
 
   try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    const files = await findSourceFiles();
+    const sources = await Promise.all(
+      files.map(async (file) => ({
+        ...file,
+        data: await downloadDriveFile(file.id),
+      })),
+    );
+    const catalog = buildCatalog(sources);
+    await saveCatalog(catalog);
+
+    return Response.json({
+      status: "ok",
+      productCount: catalog.productCount,
+      marketCount: catalog.marketCount,
+      generatedAt: catalog.generatedAt,
+      message: `${catalog.productCount.toLocaleString("pt-BR")} produtos atualizados a partir do Google Drive.`,
     });
-    const rawPayload: unknown = await response.json().catch(() => ({}));
-    const payload =
-      typeof rawPayload === "object" && rawPayload !== null
-        ? (rawPayload as Record<string, unknown>)
-        : {};
-    const responseMessage =
-      typeof payload.message === "string" ? payload.message : null;
-
-    if (!response.ok) {
-      return Response.json(
-        {
-          status: "failed",
-          message:
-            responseMessage ??
-            "O Drive respondeu com erro. A base anterior foi preservada.",
-        },
-        { status: 502 },
-      );
-    }
-
-    return Response.json({ status: "ok", ...payload });
-  } catch {
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Erro desconhecido.";
+    console.error("Falha na sincronização do Consultor:", detail);
     return Response.json(
       {
         status: "failed",
-        message:
-          "Não foi possível alcançar o Drive. A base anterior foi preservada.",
+        message: `${detail} A base anterior foi preservada.`,
       },
-      { status: 503 },
+      { status: 502 },
     );
   }
 }

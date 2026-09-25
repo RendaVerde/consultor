@@ -993,6 +993,20 @@ footer {
   border-radius: 11px;
   font-size: 0.82rem;
 }
+.sync-auth {
+  display: grid;
+  gap: 6px;
+}
+.sync-auth > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.sync-auth input {
+  height: 43px;
+  border-color: rgba(8, 54, 58, 0.2);
+  background: #fff;
+}
 .sync-button {
   width: 100%;
   height: 46px !important;
