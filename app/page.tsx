@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   Barcode,
   Boxes,
   Camera,
@@ -10,11 +11,14 @@ import {
   ChevronRight,
   CircleDollarSign,
   Database,
+  LayoutDashboard,
   PackageCheck,
+  PackageSearch,
   RefreshCw,
   Search,
   ShieldCheck,
   Store,
+  Tags,
   WifiOff,
   X,
 } from "lucide-react";
@@ -268,6 +272,8 @@ export default function Home() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
+  const [category, setCategory] = useState("Todos");
+  const [page, setPage] = useState(1);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -282,11 +288,6 @@ export default function Home() {
       })
       .then((data) => {
         setCatalog(data);
-        setSelected(
-          data.products.find((item) => item.ean === "7896122305207") ??
-            data.products[0] ??
-            null,
-        );
       })
       .catch(() => setOffline(true));
 
@@ -335,6 +336,72 @@ export default function Home() {
     setQuery("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
+
+  const categories = useMemo(() => {
+    if (!catalog) return [];
+    return Array.from(
+      new Set(
+        catalog.products.map((product) => product.category || "Sem categoria"),
+      ),
+    ).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [catalog]);
+
+  const dashboardMetrics = useMemo(() => {
+    if (!catalog) return null;
+    let attention = 0;
+    let inCd = 0;
+    let blocked = 0;
+
+    catalog.products.forEach((product) => {
+      const signal = operationalSignal(product);
+      if (signal.tone === "warning" || signal.tone === "danger") attention += 1;
+      if (
+        product.stores.some(
+          (store) => store.key === "cd" && (store.stock ?? 0) > 0,
+        )
+      )
+        inCd += 1;
+      if (product.stores.some((store) => store.status.includes("Bloqueado")))
+        blocked += 1;
+    });
+
+    return { attention, inCd, blocked };
+  }, [catalog]);
+
+  const dashboardProducts = useMemo(() => {
+    if (!catalog) return [];
+    const term = normalize(query);
+    const digits = query.replace(/\D/g, "");
+
+    return catalog.products
+      .filter(
+        (product) =>
+          category === "Todos" ||
+          (product.category || "Sem categoria") === category,
+      )
+      .filter((product) => {
+        if (!term) return true;
+        const name = normalize(product.name);
+        return (
+          (digits && product.ean.includes(digits)) ||
+          product.id.includes(query.trim()) ||
+          term.split(" ").every((part) => name.includes(part))
+        );
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [catalog, category, query]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [category, query]);
+
+  const pageSize = 24;
+  const totalPages = Math.max(1, Math.ceil(dashboardProducts.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const visibleProducts = dashboardProducts.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
   const handleDetected = useCallback(
     (value: string) => {
@@ -521,6 +588,17 @@ export default function Home() {
         </section>
       ) : selected && metrics && signal ? (
         <>
+          <div className="detail-toolbar">
+            <button
+              className="back-button"
+              onClick={() => {
+                setSelected(null);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            >
+              <ArrowLeft size={17} /> Voltar para todos os produtos
+            </button>
+          </div>
           <section className="product-card">
             <div className="product-identity">
               <div className="product-image">
@@ -715,6 +793,168 @@ export default function Home() {
             </div>
           </section>
         </>
+      ) : catalog && dashboardMetrics ? (
+        <section className="dashboard" aria-labelledby="dashboard-title">
+          <div className="dashboard-heading">
+            <div>
+              <p className="eyebrow">Visão geral</p>
+              <h2 id="dashboard-title">Catálogo de produtos</h2>
+              <p>
+                Selecione um item para conferir estoque, custo, margem e situação
+                em cada mercado.
+              </p>
+            </div>
+            <span className="dashboard-updated">
+              Base de {formatDate(catalog.generatedAt)}
+            </span>
+          </div>
+
+          <div className="dashboard-metrics" aria-label="Resumo do catálogo">
+            <article>
+              <span className="dashboard-metric-icon products">
+                <PackageSearch size={21} />
+              </span>
+              <div>
+                <strong>{catalog.productCount.toLocaleString("pt-BR")}</strong>
+                <small>produtos cadastrados</small>
+              </div>
+            </article>
+            <article>
+              <span className="dashboard-metric-icon categories">
+                <Tags size={21} />
+              </span>
+              <div>
+                <strong>{categories.length.toLocaleString("pt-BR")}</strong>
+                <small>categorias</small>
+              </div>
+            </article>
+            <article>
+              <span className="dashboard-metric-icon attention">
+                <AlertTriangle size={21} />
+              </span>
+              <div>
+                <strong>{dashboardMetrics.attention.toLocaleString("pt-BR")}</strong>
+                <small>pedem conferência</small>
+              </div>
+            </article>
+            <article>
+              <span className="dashboard-metric-icon available">
+                <PackageCheck size={21} />
+              </span>
+              <div>
+                <strong>{dashboardMetrics.inCd.toLocaleString("pt-BR")}</strong>
+                <small>com saldo no CD</small>
+              </div>
+            </article>
+          </div>
+
+          <div className="catalog-panel">
+            <div className="catalog-toolbar">
+              <div>
+                <span className="catalog-title">
+                  <LayoutDashboard size={18} /> Todos os produtos
+                </span>
+                <small>
+                  {dashboardProducts.length.toLocaleString("pt-BR")} encontrados
+                </small>
+              </div>
+              <label className="category-filter">
+                <span>Categoria</span>
+                <select
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                >
+                  <option value="Todos">Todas</option>
+                  {categories.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {visibleProducts.length ? (
+              <div className="catalog-list">
+                {visibleProducts.map((product) => {
+                  const productSignal = operationalSignal(product);
+                  const stock = product.stores.reduce(
+                    (sum, store) => sum + (store.stock ?? 0),
+                    0,
+                  );
+                  return (
+                    <button
+                      className="catalog-row"
+                      key={`${product.ean}-${product.id}`}
+                      onClick={() => chooseProduct(product)}
+                    >
+                      <span className="catalog-thumb">
+                        {product.imageUrl ? (
+                          <img src={product.imageUrl} alt="" />
+                        ) : (
+                          <Boxes size={22} />
+                        )}
+                      </span>
+                      <span className="catalog-product-copy">
+                        <strong>{product.name}</strong>
+                        <small>
+                          {product.category || "Sem categoria"} · EAN{" "}
+                          {product.ean || "não informado"}
+                        </small>
+                      </span>
+                      <span className="catalog-number">
+                        <small>Custo</small>
+                        <strong>
+                          {product.cost === null
+                            ? "—"
+                            : currency.format(product.cost)}
+                        </strong>
+                      </span>
+                      <span className="catalog-number">
+                        <small>Estoque total</small>
+                        <strong>{stock.toLocaleString("pt-BR")} un.</strong>
+                      </span>
+                      <span className={`signal-pill ${productSignal.tone}`}>
+                        {productSignal.label}
+                      </span>
+                      <ChevronRight className="catalog-chevron" size={19} />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="catalog-empty">
+                <PackageSearch size={28} />
+                <strong>Nenhum produto encontrado</strong>
+                <span>Altere a busca ou selecione outra categoria.</span>
+              </div>
+            )}
+
+            {dashboardProducts.length > pageSize && (
+              <div className="catalog-pagination">
+                <Button
+                  variant="outline"
+                  disabled={currentPage === 1}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                >
+                  Anterior
+                </Button>
+                <span>
+                  Página <strong>{currentPage}</strong> de {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  disabled={currentPage === totalPages}
+                  onClick={() =>
+                    setPage((current) => Math.min(totalPages, current + 1))
+                  }
+                >
+                  Próxima
+                </Button>
+              </div>
+            )}
+          </div>
+        </section>
       ) : null}
 
       <footer>
