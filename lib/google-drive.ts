@@ -1,4 +1,5 @@
 import { createSign } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -40,7 +41,18 @@ function base64Url(value: string | Buffer) {
 }
 
 function serviceAccount(): ServiceAccount {
-  const rawJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim();
+  const credentialFile = process.env.GOOGLE_SERVICE_ACCOUNT_FILE?.trim();
+  let rawJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim();
+
+  if (!rawJson && credentialFile) {
+    try {
+      rawJson = readFileSync(credentialFile, "utf8").trim();
+    } catch {
+      throw new Error(
+        "Não foi possível ler o arquivo indicado em GOOGLE_SERVICE_ACCOUNT_FILE.",
+      );
+    }
+  }
 
   if (rawJson) {
     let parsed: { client_email?: unknown; private_key?: unknown };
@@ -80,6 +92,7 @@ export function driveConfigurationErrors() {
   }
   if (
     !process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim() &&
+    !process.env.GOOGLE_SERVICE_ACCOUNT_FILE?.trim() &&
     (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.trim() ||
       !process.env.GOOGLE_PRIVATE_KEY?.trim())
   ) {
