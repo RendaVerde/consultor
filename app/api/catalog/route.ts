@@ -1,4 +1,5 @@
 import { getCatalog, blobIsConfigured } from "@/lib/catalog-store";
+import { isAuthenticated } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +15,13 @@ function catalogHeaders(etag?: string) {
 }
 
 export async function GET(request: Request) {
+  if (!(await isAuthenticated(request))) {
+    return Response.json(
+      { message: "Sua sessão expirou. Entre novamente." },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   if (blobIsConfigured()) {
     try {
       const result = await getCatalog(
@@ -37,6 +45,7 @@ export async function GET(request: Request) {
 
   const fallback = await fetch(new URL("/data/catalog.json", request.url), {
     cache: "no-store",
+    headers: { cookie: request.headers.get("cookie") ?? "" },
   });
   if (!fallback.ok) {
     return Response.json(

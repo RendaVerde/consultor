@@ -5,6 +5,7 @@ import {
   driveConfigurationErrors,
   findSourceFiles,
 } from "@/lib/google-drive";
+import { constantTimeEqual, isAuthenticated } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,15 +20,19 @@ function bearerToken(request: Request) {
 
 export async function POST(request: Request) {
   const syncToken = process.env.IHM_SYNC_TOKEN?.trim();
-  if (syncToken && bearerToken(request) !== syncToken) {
+  const bearer = bearerToken(request);
+  const authenticated = await isAuthenticated(request);
+  const validAutomationToken = Boolean(
+    syncToken && bearer && constantTimeEqual(bearer, syncToken),
+  );
+  if (!authenticated && !validAutomationToken) {
     return Response.json(
       {
         status: "unauthorized",
-        requiresToken: true,
-        message:
-          "Informe a chave de atualização para consultar o Google Drive.",
+        requiresLogin: true,
+        message: "Sua sessão expirou. Entre novamente para atualizar a base.",
       },
-      { status: 401 },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
 

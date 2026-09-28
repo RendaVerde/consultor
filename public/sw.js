@@ -1,5 +1,5 @@
-const CACHE = "consultor-v2";
-const CORE = ["/", "/manifest.webmanifest", "/favicon.svg"];
+const CACHE = "consultor-v3";
+const CORE = ["/manifest.webmanifest", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)));
@@ -14,7 +14,11 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
+  if (
+    event.request.method !== "GET" ||
+    event.request.mode === "navigate" ||
+    new URL(event.request.url).pathname.startsWith("/api/")
+  ) return;
   event.respondWith(
     fetch(event.request)
       .then((response) => {
@@ -24,6 +28,6 @@ self.addEventListener("fetch", (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(event.request).then((response) => response || caches.match("/"))),
+      .catch(() => caches.match(event.request)),
   );
 });
