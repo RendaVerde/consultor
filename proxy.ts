@@ -5,6 +5,8 @@ const PUBLIC_PATHS = new Set([
   "/login",
   "/api/auth/login",
   "/api/auth/logout",
+  "/api/auth/passkey/authenticate/options",
+  "/api/auth/passkey/authenticate/verify",
   "/favicon.svg",
   "/manifest.webmanifest",
   "/sw.js",

@@ -1,4 +1,4 @@
-const CACHE = "consultor-v3";
+const CACHE = "consultor-v4";
 const CORE = ["/manifest.webmanifest", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {

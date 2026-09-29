@@ -7,6 +7,12 @@ type SessionPayload = {
   exp: number;
 };
 
+type ChallengePayload = {
+  purpose: "registration" | "authentication";
+  challenge: string;
+  exp: number;
+};
+
 function bytesToBase64Url(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -25,6 +31,23 @@ function base64UrlToText(value: string) {
   );
 }
 
+function cookieFromRequest(request: Request, cookieName: string) {
+  const cookies = request.headers.get("cookie") ?? "";
+  for (const entry of cookies.split(";")) {
+    const [name, ...value] = entry.trim().split("=");
+    if (name === cookieName) return decodeURIComponent(value.join("="));
+  }
+  return undefined;
+}
+
+function sessionSecret() {
+  const secret = process.env.AUTH_SESSION_SECRET?.trim();
+  if (!secret || secret.length < 32) {
+    throw new Error("AUTH_SESSION_SECRET não foi configurado corretamente.");
+  }
+  return secret;
+}
+
 async function signature(value: string, secret: string) {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -35,6 +58,30 @@ async function signature(value: string, secret: string) {
   );
   const result = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
   return bytesToBase64Url(new Uint8Array(result));
+}
+
+async function createSignedPayload(payload: object) {
+  const encodedPayload = bytesToBase64Url(
+    encoder.encode(JSON.stringify(payload)),
+  );
+  return `${encodedPayload}.${await signature(encodedPayload, sessionSecret())}`;
+}
+
+async function readSignedPayload<T>(token: string | undefined) {
+  const secret = process.env.AUTH_SESSION_SECRET?.trim();
+  if (!token || !secret || secret.length < 32) return null;
+
+  const [encodedPayload, receivedSignature, extra] = token.split(".");
+  if (!encodedPayload || !receivedSignature || extra) return null;
+
+  const expectedSignature = await signature(encodedPayload, secret);
+  if (!constantTimeEqual(receivedSignature, expectedSignature)) return null;
+
+  try {
+    return JSON.parse(base64UrlToText(encodedPayload)) as T;
+  } catch {
+    return null;
+  }
 }
 
 export function constantTimeEqual(left: string, right: string) {
@@ -61,49 +108,25 @@ export function authConfigurationErrors() {
 }
 
 export async function createSessionToken(username: string) {
-  const secret = process.env.AUTH_SESSION_SECRET?.trim();
-  if (!secret || secret.length < 32) {
-    throw new Error("AUTH_SESSION_SECRET não foi configurado corretamente.");
-  }
   const payload: SessionPayload = {
     sub: username,
     exp: Math.floor(Date.now() / 1000) + SESSION_DURATION_SECONDS,
   };
-  const encodedPayload = bytesToBase64Url(
-    encoder.encode(JSON.stringify(payload)),
-  );
-  return `${encodedPayload}.${await signature(encodedPayload, secret)}`;
+  return createSignedPayload(payload);
 }
 
 export async function verifySessionToken(token: string | undefined) {
-  const secret = process.env.AUTH_SESSION_SECRET?.trim();
-  if (!token || !secret || secret.length < 32) return false;
-
-  const [encodedPayload, receivedSignature, extra] = token.split(".");
-  if (!encodedPayload || !receivedSignature || extra) return false;
-
-  const expectedSignature = await signature(encodedPayload, secret);
-  if (!constantTimeEqual(receivedSignature, expectedSignature)) return false;
-
-  try {
-    const payload = JSON.parse(base64UrlToText(encodedPayload)) as SessionPayload;
-    return (
+  const payload = await readSignedPayload<SessionPayload>(token);
+  return Boolean(
+    payload &&
       payload.sub === authUsername() &&
       Number.isFinite(payload.exp) &&
-      payload.exp > Math.floor(Date.now() / 1000)
-    );
-  } catch {
-    return false;
-  }
+      payload.exp > Math.floor(Date.now() / 1000),
+  );
 }
 
 export function sessionTokenFromRequest(request: Request) {
-  const cookies = request.headers.get("cookie") ?? "";
-  for (const entry of cookies.split(";")) {
-    const [name, ...value] = entry.trim().split("=");
-    if (name === SESSION_COOKIE) return decodeURIComponent(value.join("="));
-  }
-  return undefined;
+  return cookieFromRequest(request, SESSION_COOKIE);
 }
 
 export async function isAuthenticated(request: Request) {
@@ -114,3 +137,39 @@ export const sessionCookie = {
   name: SESSION_COOKIE,
   maxAge: SESSION_DURATION_SECONDS,
 };
+
+export const passkeyChallengeCookie = {
+  registration: "consultor_passkey_registration",
+  authentication: "consultor_passkey_authentication",
+  maxAge: 5 * 60,
+} as const;
+
+export async function createPasskeyChallengeToken(
+  purpose: ChallengePayload["purpose"],
+  challenge: string,
+) {
+  return createSignedPayload({
+    purpose,
+    challenge,
+    exp: Math.floor(Date.now() / 1000) + passkeyChallengeCookie.maxAge,
+  } satisfies ChallengePayload);
+}
+
+export async function passkeyChallengeFromRequest(
+  request: Request,
+  purpose: ChallengePayload["purpose"],
+) {
+  const cookieName = passkeyChallengeCookie[purpose];
+  const payload = await readSignedPayload<ChallengePayload>(
+    cookieFromRequest(request, cookieName),
+  );
+  if (
+    !payload ||
+    payload.purpose !== purpose ||
+    !payload.challenge ||
+    payload.exp <= Math.floor(Date.now() / 1000)
+  ) {
+    return null;
+  }
+  return payload.challenge;
+}

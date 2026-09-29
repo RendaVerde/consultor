@@ -12,7 +12,6 @@ import {
   CircleDollarSign,
   Database,
   LayoutDashboard,
-  LogOut,
   PackageCheck,
   PackageSearch,
   RefreshCw,
@@ -33,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { AccountMenu } from "@/components/account-menu";
 
 type StoreRecord = {
   key: string;
@@ -451,15 +451,6 @@ export default function Home() {
     }
   }
 
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
-    if ("caches" in window) {
-      const names = await caches.keys();
-      await Promise.all(names.map((name) => caches.delete(name)));
-    }
-    window.location.replace("/login");
-  }
-
   const metrics = useMemo(() => {
     if (!selected) return null;
     const totalStock = selected.stores.reduce(
@@ -525,9 +516,7 @@ export default function Home() {
             </span>
             <ChevronRight size={17} />
           </button>
-          <button className="logout-button" onClick={logout} aria-label="Sair">
-            <LogOut size={18} />
-          </button>
+          <AccountMenu />
         </div>
       </header>
 
